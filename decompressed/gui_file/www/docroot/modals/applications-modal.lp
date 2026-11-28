@@ -209,14 +209,24 @@ local function append_extension_card(state_key, app, title, description, link, c
 	html[#html+1] = "</div>"
 end
 
+-- These checks can run opkg on the gateway, which is slow when many feeds are
+-- installed (for example after LuCI). Run each one at most once per page load.
+local wireguard_supported_cache, tun_supported_cache
+
 local function native_wireguard_supported()
-    local result = proxy.get("rpc.system.modgui.WireGuardSupported")
-    return result and result[1] and result[1].value == "1"
+    if wireguard_supported_cache == nil then
+        local result = proxy.get("rpc.system.modgui.WireGuardSupported")
+        wireguard_supported_cache = (result and result[1] and result[1].value == "1") and true or false
+    end
+    return wireguard_supported_cache
 end
 
 local function tun_install_supported()
-    local result = proxy.get("rpc.system.modgui.TunSupported")
-    return result and result[1] and result[1].value == "1"
+    if tun_supported_cache == nil then
+        local result = proxy.get("rpc.system.modgui.TunSupported")
+        tun_supported_cache = (result and result[1] and result[1].value == "1") and true or false
+    end
+    return tun_supported_cache
 end
 
 if StateParams["luci_webui"] ~= nil then
@@ -404,7 +414,7 @@ if StateParams["openspeedtest_application"] ~= nil then
 end
 
 if StateParams["wireguard_application"] ~= nil then
-	if native_wireguard_supported() or tun_install_supported() then
+	if tun_install_supported() or native_wireguard_supported() then
 		append_extension_card(
 			"wireguard_application",
 			"wireguard",
@@ -479,9 +489,10 @@ if StateParams["tailscale_application"] ~= nil then
 end
 
 if StateParams["dumaos_application"] ~= nil then
-	local check = io.popen("/usr/share/transformer/scripts/appInstallRemoveUtility.sh check dumaos; echo $?", "r")
-	local supported = check and check:read("*line") == "0"
-	if check then check:close() end
+	-- Same rule as dumaos_platform_supported (ARMv7 with kernel 4.1.52), without spawning a shell
+	local kernel_version = proxy.get("rpc.system.modgui.KernelVersion")
+	kernel_version = kernel_version and kernel_version[1] and kernel_version[1].value or ""
+	local supported = cputype:match("^armv7") ~= nil and kernel_version:match("^4%.1%.52") ~= nil
 	if supported or mapParams.dumaos_application == "1" then
 	local dumaos_link = "/desktop/"
 	append_extension_card(
